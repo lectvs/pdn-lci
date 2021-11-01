@@ -15,6 +15,23 @@ private const string LayerDataDelimiter = "|";
 private const string LayerDataAssignmentDelimiter = "=";
 private const string DefaultsLayerName = "defaults";
 
+private Dictionary<int, int> PDNBlendModesToPixiBlendModes = new Dictionary<int, int> {
+    {0, 0},   // Normal
+    {1, 2},   // Multiply
+    {2, 1},   // Additive
+    {3, 8},   // ColorBurn
+    {4, 7},   // ColorDodge
+    {5, -1},  // Reflect
+    {6, -1},  // Glow
+    {7, 4},   // Overlay
+    {8, 11},  // Difference
+    {9, -1},  // Negation
+    {10, 6},  // Lighten
+    {11, 5},  // Darken
+    {12, 3},  // Screen
+    {13, -1}, // Xor
+};
+
 private string[] split(string str, string by) {
     return str.Split(new string[] { by }, StringSplitOptions.None);
 }
@@ -77,17 +94,20 @@ class LayerData {
     public bool isDataLayer { get; set; }
     public LayerProperties properties { get; set; }
 
+    public bool visible { get; set; }
+    public byte opacity { get; set; }
+    public int blendMode { get; set; }
+
     // Paint.NET specific.
     public int offsetX { get; set; }
     public int offsetY { get; set; }
-    public bool visible { get; set; }
-    public byte opacity { get; set; }
 }
 
 class LayerProperties {
     public bool restrict { get; set; }
     public string layer { get; set; }
     public Pt anchor { get; set; }
+    public Pt offset { get; set; }
     public string physicsGroup { get; set; }
     public Rect bounds { get; set; }
     public string placeholder { get; set; }
@@ -98,6 +118,7 @@ class LayerProperties {
         restrict = false;
         layer = null;
         anchor = null;
+        offset = null;
         physicsGroup = null;
         bounds = null;
         placeholder = null;
@@ -109,6 +130,7 @@ class LayerProperties {
             restrict = from.restrict;
             layer = from.layer;
             anchor = from.anchor == null ? null : new Pt(from.anchor);
+            offset = from.offset == null ? null : new Pt(from.offset);
             physicsGroup = from.physicsGroup;
             bounds = from.bounds == null ? null : new Rect(from.bounds);
             placeholder = from.placeholder;
@@ -153,6 +175,8 @@ void SaveImage(Document input, Stream output, PropertyBasedSaveConfigToken token
         layerData.name = extractLayerName(layer.Name);
         layerData.visible = layer.Visible;
         layerData.opacity = layer.Opacity;
+        layerData.blendMode = pdnBlendModeToPixiBlendMode((int)layer.BlendMode);
+
         layerData.properties = layerProperties;
 
         // Layer is a data layer if any apply:
@@ -169,8 +193,16 @@ void SaveImage(Document input, Stream output, PropertyBasedSaveConfigToken token
 
         layerData.position = new Pt(contentBounds.X, contentBounds.Y);
         if (layerProperties.anchor != null) {
+            // Round anchor to nearest pixel
+            layerProperties.anchor.x = (float)Math.Floor(contentBounds.Width * layerProperties.anchor.x) / contentBounds.Width;
+            layerProperties.anchor.y = (float)Math.Floor(contentBounds.Height * layerProperties.anchor.y) / contentBounds.Height;
+
             layerData.position.x += contentBounds.Width * layerProperties.anchor.x;
             layerData.position.y += contentBounds.Height * layerProperties.anchor.y;
+        }
+        if (layerProperties.offset != null) {
+            layerData.position.x -= layerProperties.offset.x;
+            layerData.position.y -= layerProperties.offset.y;
         }
         
         // Render image data as Base64-encoded PNG.
@@ -227,6 +259,7 @@ Document LoadImage(Stream input) {
             layer.Name = layerData.rawName;
             layer.Visible = layerData.visible;
             layer.Opacity = layerData.opacity;
+            layer.BlendMode = (LayerBlendMode)pixiBlendModeToPdnBlendMode(layerData.blendMode);
 
             doc.Layers.Add(layer);
         }
@@ -268,6 +301,8 @@ LayerProperties extractLayerProperties(BitmapLayer layer, LayerProperties defaul
             layerProperties.layer = kv[1];
         } else if (kv[0] == "anchor") {
             layerProperties.anchor = getAnchorPoint(kv[1]);
+        } else if (kv[0] == "offset") {
+            layerProperties.offset = getOffsetPoint(kv[1]);
         } else if (kv[0] == "physicsGroup") {
             layerProperties.physicsGroup = kv[1];
         } else if (kv[0] == "bounds") {
@@ -302,17 +337,11 @@ Pt getAnchorPoint(string anchor) {
     if (anchor == "right") return new Pt(1, 0.5f);
     if (anchor == "center") return new Pt(0.5f, 0.5f);
     
-    string[] parts = split(anchor, ",");
-    if (parts.Length == 2) {
-        try {
-            return new Pt(float.Parse(parts[0]), float.Parse(parts[1]));
-        } catch (Exception e) {
-            // Pass, exception thrown below.
-            e.GetHashCode();
-        }
-    }
-    
-    throw new Exception("Invalid anchor: " + anchor);
+    return parsePt(anchor, "anchor");
+}
+
+Pt getOffsetPoint(string offset) {
+    return parsePt(offset, "offset");
 }
 
 Rect getBoundsRect(string bounds) {
@@ -479,4 +508,35 @@ bool combineRects(Rect rect, Rect into) {
 bool rectContainsRect(Rect rect, Rect contains) {
     return rect.x <= contains.x && rect.x + rect.width  >= contains.x + contains.width
         && rect.y <= contains.y && rect.y + rect.height >= contains.y + contains.height;
+}
+
+
+
+int pdnBlendModeToPixiBlendMode(int pdnBlendMode) {
+    int pixiBlendMode = PDNBlendModesToPixiBlendModes[pdnBlendMode];
+    if (pixiBlendMode == -1) {
+        throw new Exception("Blend mode is not supported: " + pdnBlendMode);
+    }
+    return pixiBlendMode;
+}
+
+int pixiBlendModeToPdnBlendMode(int pixiBlendMode) {
+    foreach (KeyValuePair<int, int> entry in PDNBlendModesToPixiBlendModes) {
+        if (entry.Value == pixiBlendMode) return entry.Key;
+    }
+    throw new Exception("Illegal blend mode in LCI document: " + pixiBlendMode);
+}
+
+Pt parsePt(string pt, string name) {
+    string[] parts = split(pt, ",");
+    if (parts.Length == 2) {
+        try {
+            return new Pt(float.Parse(parts[0]), float.Parse(parts[1]));
+        } catch (Exception e) {
+            // Pass, exception thrown below.
+            e.GetHashCode();
+        }
+    }
+    
+    throw new Exception("Invalid " + name + ": " + pt);
 }
