@@ -78,6 +78,10 @@ class Rect {
             this.height = from.height;
         }
     }
+
+    public bool isAll() {
+        return this.x < 0 && this.y < 0 && this.width < 0 && this.height < 0;
+    }
 }
 
 class DocumentData {
@@ -203,6 +207,13 @@ void SaveImage(Document input, Stream output, PropertyBasedSaveConfigToken token
         if (layerProperties.offset != null) {
             layerData.position.x -= layerProperties.offset.x;
             layerData.position.y -= layerProperties.offset.y;
+        }
+
+        if (layerProperties.bounds != null && layerProperties.bounds.isAll()) {
+            layerProperties.bounds.x = layerData.offsetX - layerData.position.x;
+            layerProperties.bounds.y = layerData.offsetY - layerData.position.y;
+            layerProperties.bounds.width = contentBounds.Width;
+            layerProperties.bounds.height = contentBounds.Height;
         }
         
         // Render image data as Base64-encoded PNG.
@@ -345,6 +356,8 @@ Pt getOffsetPoint(string offset) {
 }
 
 Rect getBoundsRect(string bounds) {
+    if (bounds == "all") return new Rect(-1, -1, -1, -1);
+
     string[] parts = split(bounds, ",");
     if (parts.Length == 4) {
         try {
