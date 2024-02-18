@@ -186,7 +186,6 @@ void SaveImage(Document input, Stream output, PropertyBasedSaveConfigToken token
         // Layer is a data layer if any apply:
         layerData.isDataLayer = layerData.name == DefaultsLayerName    // Layer is the "defaults" layer
                              || layerData.name.StartsWith("//")        // Layer is a comment layer
-                             || layerProperties.placeholder != null    // Object is placeholder
                              || layerProperties.multiBounds != null;    // Object is a multibounds
 
         Rectangle contentBounds = layerProperties.restrict
