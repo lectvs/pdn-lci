@@ -291,7 +291,12 @@ LayerProperties extractLayerProperties(BitmapLayer layer, LayerProperties defaul
     LayerProperties layerProperties = new LayerProperties(defaults);
 
     string data = layer.Name;
-    string[] datas = split(data, LayerDataDelimiter);
+
+    bool isCommentLayer = data.StartsWith("//");
+
+    string[] datas = isCommentLayer
+        ? new string[] { data }
+        : split(data, LayerDataDelimiter);
 
     for (int i = 1; i < datas.Length; i++) {
         string[] kv = split(datas[i], LayerDataAssignmentDelimiter);
@@ -319,7 +324,7 @@ LayerProperties extractLayerProperties(BitmapLayer layer, LayerProperties defaul
             layerProperties.bounds = getBoundsRect(kv[1]);
         } else if (kv[0] == "placeholder") {
             layerProperties.placeholder = kv[1];
-        } else if (kv[0] == "multiBounds") {
+        } else if (kv[0] == "multiBounds" || kv[0] == "multibounds") {
             if (kv[1] == "true") {
                 layerProperties.multiBounds = layerToMultiBounds(layer);
             }
