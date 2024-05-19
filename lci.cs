@@ -14,6 +14,7 @@ private const string Base64DataStart = "data:image/png;base64,";
 private const string LayerDataDelimiter = "|";
 private const string LayerDataAssignmentDelimiter = "=";
 private const string DefaultsLayerName = "defaults";
+private const string BoundsAll = "all";
 
 private Dictionary<int, int> PDNBlendModesToPixiBlendModes = new Dictionary<int, int> {
     {0, 0},   // Normal
@@ -113,7 +114,7 @@ class LayerProperties {
     public Pt anchor { get; set; }
     public Pt offset { get; set; }
     public string physicsGroup { get; set; }
-    public Rect bounds { get; set; }
+    public string bounds { get; set; }
     public string placeholder { get; set; }
     public Rect[] multiBounds { get; set; }
     public Dictionary<string, string> data { get; set; }
@@ -136,7 +137,7 @@ class LayerProperties {
             anchor = from.anchor == null ? null : new Pt(from.anchor);
             offset = from.offset == null ? null : new Pt(from.offset);
             physicsGroup = from.physicsGroup;
-            bounds = from.bounds == null ? null : new Rect(from.bounds);
+            bounds = from.bounds;
             placeholder = from.placeholder;
             data = new Dictionary<string, string>(from.data);
         }
@@ -208,11 +209,12 @@ void SaveImage(Document input, Stream output, PropertyBasedSaveConfigToken token
             layerData.position.y -= layerProperties.offset.y;
         }
 
-        if (layerProperties.bounds != null && layerProperties.bounds.isAll()) {
-            layerProperties.bounds.x = layerData.offsetX - layerData.position.x;
-            layerProperties.bounds.y = layerData.offsetY - layerData.position.y;
-            layerProperties.bounds.width = contentBounds.Width;
-            layerProperties.bounds.height = contentBounds.Height;
+        if (layerProperties.bounds == BoundsAll) {
+            float boundsX = layerData.offsetX - layerData.position.x;
+            float boundsY = layerData.offsetY - layerData.position.y;
+            float boundsWidth = contentBounds.Width;
+            float boundsHeight = contentBounds.Height;
+            layerProperties.bounds = "rect(" + boundsX + "," + boundsY + "," + boundsWidth + "," + boundsHeight + ")";
         }
         
         // Render image data as Base64-encoded PNG.
@@ -321,7 +323,7 @@ LayerProperties extractLayerProperties(BitmapLayer layer, LayerProperties defaul
         } else if (kv[0] == "physicsGroup") {
             layerProperties.physicsGroup = kv[1];
         } else if (kv[0] == "bounds") {
-            layerProperties.bounds = getBoundsRect(kv[1]);
+            layerProperties.bounds = kv[1];
         } else if (kv[0] == "placeholder") {
             layerProperties.placeholder = kv[1];
         } else if (kv[0] == "multiBounds" || kv[0] == "multibounds") {
@@ -357,22 +359,6 @@ Pt getAnchorPoint(string anchor) {
 
 Pt getOffsetPoint(string offset) {
     return parsePt(offset, "offset");
-}
-
-Rect getBoundsRect(string bounds) {
-    if (bounds == "all") return new Rect(-1, -1, -1, -1);
-
-    string[] parts = split(bounds, ",");
-    if (parts.Length == 4) {
-        try {
-            return new Rect(float.Parse(parts[0]), float.Parse(parts[1]), float.Parse(parts[2]), float.Parse(parts[3]));
-        } catch (Exception e) {
-            // Pass, exception thrown below.
-            e.GetHashCode();
-        }
-    }
-    
-    throw new Exception("Invalid bounds: " + bounds);
 }
 
 LayerProperties getDefaultLayerProperties(Document input) {
@@ -480,7 +466,6 @@ void optimizeCollisionRects(List<Rect> rects, bool all) {
         while (j < rects.Count) {
             bool combined = combineRects(rects[j], rects[i]);
             if (combined) {
-                string[] g;
                 rects.RemoveAt(j);
             } else if (all) {
                 j++;
